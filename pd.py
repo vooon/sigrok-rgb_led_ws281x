@@ -19,6 +19,10 @@
 ##
 
 import sigrokdecode as srd
+from functools import reduce
+
+class SamplerateError(Exception):
+    pass
 
 class Decoder(srd.Decoder):
     api_version = 2
@@ -33,12 +37,21 @@ class Decoder(srd.Decoder):
         {'id': 'din', 'name': 'DIN', 'desc': 'DIN data line'},
     )
     annotations = (
-        ('rgb', 'RGB values'),
+        ('bit', 'Bit'),
+        ('rgb', 'RGB'),
+    )
+    annotation_rows = (
+        ('bit', 'Bit', (0, )),
+        ('rgb', 'RGB', (1, )),
     )
 
     def __init__(self, **kwargs):
-        self.ss_cmd, self.es_cmd = 0, 0
         self.samplerate = None
+        self.oldpin = None
+        self.packet_ss = None
+        self.start_samplenum = None
+        self.end_samplenum = None
+        self.bits = []
 
     def start(self):
         self.out_ann = self.register(srd.OUTPUT_ANN)
@@ -47,28 +60,49 @@ class Decoder(srd.Decoder):
         if key == srd.SRD_CONF_SAMPLERATE:
             self.samplerate = value
 
-    def putx(self, data):
-        self.put(self.ss_cmd, self.es_cmd, self.out_ann, data)
-
     def decode(self, ss, es, data):
-        ptype, mosi, miso = data
+        if not self.samplerate:
+            raise SamplerateError('Cannot decode without samplerate.')
 
-        # Only care about data packets.
-        if ptype != 'DATA':
-            return
-        self.ss, self.es = ss, es
+        for (samplenum, (pin, )) in data:
+            #if self.oldpin == pin:
+            #    continue
 
-        if len(self.mosi_bytes) == 0:
-            self.ss_cmd = ss
-        self.mosi_bytes.append(mosi)
+            # NOTE: timings
+            # https://cpldcpu.wordpress.com/2014/01/14/light_ws2812-library-v2-0-part-i-understanding-the-ws2812/
 
-        # RGB value == 3 bytes
-        if len(self.mosi_bytes) != 3:
-            return
+            if self.oldpin is None:
+                # TODO: seatch RESET (Low for >50 us)
+                self.oldpin = pin
+                continue
 
-        red, green, blue = self.mosi_bytes
-        rgb_value = int(red) << 16 | int(green) << 8 | int(blue)
+            if not self.oldpin and pin:
+                # Rising enge
+                if self.start_samplenum and self.end_samplenum:
+                    period = samplenum - self.start_samplenum
+                    duty = self.end_samplenum - self.start_samplenum
+                    # ideal duty for T0H: 33%, T1H: 66%
+                    bit_ = (duty / period) > 0.5
 
-        self.es_cmd = es
-        self.putx([0, ['#%.6x' % rgb_value]])
-        self.mosi_bytes = []
+                    self.put(self.start_samplenum, samplenum, self.out_ann,
+                             [0, ['%d' % bit_]])
+
+                    self.bits.append(bit_)
+                    if len(self.bits) == 24:
+                        value = reduce(lambda a, b: (a << 1) | b, self.bits)
+
+                        self.put(self.packet_ss, samplenum, self.out_ann,
+                                 [1, ['#%06X' % value]])
+
+                        self.bits = []
+                        self.packet_ss = None
+
+                self.start_samplenum = samplenum
+                if self.packet_ss is None:
+                    self.packet_ss = samplenum
+
+            elif self.oldpin and not pin:
+                # Falling edge
+                self.end_samplenum = samplenum
+
+            self.oldpin = pin
