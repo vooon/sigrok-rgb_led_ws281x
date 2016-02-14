@@ -38,11 +38,12 @@ class Decoder(srd.Decoder):
     )
     annotations = (
         ('bit', 'Bit'),
+        ('reset', 'RESET'),
         ('rgb', 'RGB'),
     )
     annotation_rows = (
-        ('bit', 'Bit', (0, )),
-        ('rgb', 'RGB', (1, )),
+        ('bit', 'Bits', (0, 1)),
+        ('rgb', 'RGB', (2, )),
     )
 
     def __init__(self, **kwargs):
@@ -52,6 +53,7 @@ class Decoder(srd.Decoder):
         self.start_samplenum = None
         self.end_samplenum = None
         self.bits = []
+        self.inreset = False
 
     def start(self):
         self.out_ann = self.register(srd.OUTPUT_ANN)
@@ -60,21 +62,48 @@ class Decoder(srd.Decoder):
         if key == srd.SRD_CONF_SAMPLERATE:
             self.samplerate = value
 
+    def handle_bits(self, samplenum):
+        if len(self.bits) == 24:
+            value = reduce(lambda a, b: (a << 1) | b, self.bits)
+
+            self.put(self.packet_ss, samplenum, self.out_ann,
+                     [2, ['#%06x' % value]])
+
+            self.bits = []
+            self.packet_ss = None
+
     def decode(self, ss, es, data):
         if not self.samplerate:
             raise SamplerateError('Cannot decode without samplerate.')
 
         for (samplenum, (pin, )) in data:
-            #if self.oldpin == pin:
-            #    continue
-
             # NOTE: timings
             # https://cpldcpu.wordpress.com/2014/01/14/light_ws2812-library-v2-0-part-i-understanding-the-ws2812/
 
             if self.oldpin is None:
-                # TODO: seatch RESET (Low for >50 us)
                 self.oldpin = pin
                 continue
+
+            # check RESET condition (minimal is 10 us)
+            if not self.inreset and not pin and \
+               self.end_samplenum is not None and \
+               (samplenum - self.end_samplenum) / self.samplerate > 10e-6:
+                # decode last bit value
+                tH = (self.end_samplenum - self.start_samplenum) / self.samplerate
+                bit_ = True if tH >= 625e-9 else False
+
+                self.bits.append(bit_)
+                self.handle_bits(self.end_samplenum)
+
+                self.put(self.start_samplenum, self.end_samplenum, self.out_ann,
+                         [0, ['%d' % bit_]])
+                self.put(self.end_samplenum, samplenum, self.out_ann,
+                         [1, ['RESET', 'RST', 'R']])
+
+                self.inreset = True
+                self.bits = []
+                self.packet_ss = None
+                self.start_samplenum = None
 
             if not self.oldpin and pin:
                 # Rising enge
@@ -88,21 +117,16 @@ class Decoder(srd.Decoder):
                              [0, ['%d' % bit_]])
 
                     self.bits.append(bit_)
-                    if len(self.bits) == 24:
-                        value = reduce(lambda a, b: (a << 1) | b, self.bits)
+                    self.handle_bits(samplenum)
 
-                        self.put(self.packet_ss, samplenum, self.out_ann,
-                                 [1, ['#%06X' % value]])
-
-                        self.bits = []
-                        self.packet_ss = None
-
-                self.start_samplenum = samplenum
                 if self.packet_ss is None:
                     self.packet_ss = samplenum
 
+                self.start_samplenum = samplenum
+
             elif self.oldpin and not pin:
                 # Falling edge
+                self.inreset = False
                 self.end_samplenum = samplenum
 
             self.oldpin = pin
