@@ -64,10 +64,11 @@ class Decoder(srd.Decoder):
 
     def handle_bits(self, samplenum):
         if len(self.bits) == 24:
-            value = reduce(lambda a, b: (a << 1) | b, self.bits)
+            grb = reduce(lambda a, b: (a << 1) | b, self.bits)
+            rgb = (grb & 0xff0000) >> 8 | (grb & 0x00ff00) << 8 | (grb & 0x0000ff)
 
             self.put(self.packet_ss, samplenum, self.out_ann,
-                     [2, ['#%06x' % value]])
+                     [2, ['#%06x' % rgb]])
 
             self.bits = []
             self.packet_ss = None
@@ -84,10 +85,10 @@ class Decoder(srd.Decoder):
                 self.oldpin = pin
                 continue
 
-            # check RESET condition (minimal is 10 us)
+            # check RESET condition (mfg recommend 50 usec minimal, but real minimum is ~10 usec)
             if not self.inreset and not pin and \
                self.end_samplenum is not None and \
-               (samplenum - self.end_samplenum) / self.samplerate > 10e-6:
+               (samplenum - self.end_samplenum) / self.samplerate > 50e-6:
                 # decode last bit value
                 tH = (self.end_samplenum - self.start_samplenum) / self.samplerate
                 bit_ = True if tH >= 625e-9 else False
