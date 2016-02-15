@@ -1,8 +1,11 @@
-rgb_led_ws281x decoder
-======================
+rgb\_led\_ws281x decoder
+========================
 
 Simple and naive decoder, but it works.
 
+![PulseView start](https://raw.githubusercontent.com/vooon/sigrok-rgb_led_ws281x/master/pulseview-start.png)
+
+![PulseView end](https://raw.githubusercontent.com/vooon/sigrok-rgb_led_ws281x/master/pulseview-end.png)
 
 
 Installation
