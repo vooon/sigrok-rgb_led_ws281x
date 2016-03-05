@@ -3,6 +3,8 @@ rgb\_led\_ws281x decoder
 
 Simple and naive decoder, but it works.
 
+[Merged into upstream 4 Mar 2016.](http://comments.gmane.org/gmane.comp.debugging.sigrok.devel/1965)
+
 ![PulseView start](https://raw.githubusercontent.com/vooon/sigrok-rgb_led_ws281x/master/pulseview-start.png)
 
 ![PulseView end](https://raw.githubusercontent.com/vooon/sigrok-rgb_led_ws281x/master/pulseview-end.png)
