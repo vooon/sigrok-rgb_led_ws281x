@@ -91,7 +91,7 @@ class Decoder(srd.Decoder):
                (samplenum - self.end_samplenum) / self.samplerate > 50e-6:
                 # decode last bit value
                 tH = (self.end_samplenum - self.start_samplenum) / self.samplerate
-                bit_ = True if tH >= 625e-9 else False
+                bit_ = True if tH >= 625e-9 and tH <= 1200e-9 else False
 
                 self.bits.append(bit_)
                 self.handle_bits(self.end_samplenum)
@@ -110,9 +110,8 @@ class Decoder(srd.Decoder):
                 # Rising enge
                 if self.start_samplenum and self.end_samplenum:
                     period = samplenum - self.start_samplenum
-                    duty = self.end_samplenum - self.start_samplenum
-                    # ideal duty for T0H: 33%, T1H: 66%
-                    bit_ = (duty / period) > 0.5
+                    tH = (self.end_samplenum - self.start_samplenum) / self.samplerate
+                    bit_ = True if tH >= 625e-9 and tH <= 1200e-9 else False
 
                     self.put(self.start_samplenum, samplenum, self.out_ann,
                              [0, ['%d' % bit_]])
